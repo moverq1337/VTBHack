@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "github.com/moverq1337/VTBHack/internal/pb";
+
+service NLPService {
+  rpc ParseResume(ParseRequest) returns (ParseResponse);
+}
+
+message ParseRequest {
+  string text = 1;
+}
+
+message ParseResponse {
+  string parsed_data = 1;  // JSON с извлеченными навыками
+}
