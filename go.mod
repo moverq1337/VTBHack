@@ -1,4 +1,4 @@
-module VTBHack
+module github.com/moverq1337/VTBHack
 
 go 1.25.0
 
