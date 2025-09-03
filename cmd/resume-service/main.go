@@ -1,22 +1,19 @@
-package main
+package resume_service
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/moverq1337/VTBHack/internal/config"
 	"github.com/moverq1337/VTBHack/internal/db"
 	"github.com/moverq1337/VTBHack/internal/handlers"
-	"github.com/moverq1337/VTBHack/scripts"
-	"log"
 )
 
 func main() {
-
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	scripts.Migrate()
 
 	dbConn, err := db.Connect(cfg.DBURL)
 	if err != nil {
@@ -24,9 +21,9 @@ func main() {
 	}
 
 	r := gin.Default()
-	handlers.SetupRoutes(r, dbConn) // Настроим роуты позже
+	handlers.SetupResumeRoutes(r, dbConn)
 
-	log.Printf("Сервер запущен на порту %s", cfg.HTTPPort)
+	log.Printf("Resume Service запущен на порту %s", cfg.HTTPPort)
 	if err := r.Run(cfg.HTTPPort); err != nil {
 		log.Fatal(err)
 	}

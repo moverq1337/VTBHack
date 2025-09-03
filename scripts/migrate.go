@@ -1,4 +1,4 @@
-package main
+package scripts
 
 import (
 	"log"
@@ -8,7 +8,7 @@ import (
 	"github.com/moverq1337/VTBHack/internal/models"
 )
 
-func main() {
+func Migrate() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)

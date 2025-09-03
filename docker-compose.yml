@@ -134,16 +134,16 @@ services:
     networks:
       - kafka-net
 
-#  scoring:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile.py
-#    ports:
-#      - "50051:50051"
-#    depends_on:
-#      - api-gateway
-#    networks:
-#      - kafka-net
+  scoring:
+    build:
+      context: .
+      dockerfile: Dockerfile.py
+    ports:
+      - "50051:50051"
+    depends_on:
+      - api-gateway
+    networks:
+      - kafka-net
 
 volumes:
   postgres-data:

@@ -13,21 +13,15 @@ model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 class NLPService(nlp_pb2_grpc.NLPServiceServicer):
     def ParseResume(self, request, context):
         text = request.text
-        # Парсинг DOCX, если передан путь
+        # Парсинг DOCX, если передан путь к файлу
         if text.endswith('.docx'):
             doc = Document(text)
             text = '\n'.join([para.text for para in doc.paragraphs])
 
         # Извлечение навыков и опыта с помощью spaCy
         doc = nlp(text)
-        skills = []
-        experience = []
-        for ent in doc.ents:
-            if ent.label_ in ["SKILL", "ORG", "DATE"]:  # Кастомные метки или фильтрация
-                if ent.label_ == "SKILL":
-                    skills.append(ent.text)
-                elif ent.label_ == "DATE":
-                    experience.append(ent.text)
+        skills = [ent.text for ent in doc.ents if ent.label_ == "SKILL"]  # Предполагаем кастомные метки или фильтрацию
+        experience = [ent.text for ent in doc.ents if ent.label_ == "DATE"]
 
         # Формирование JSON-ответа
         parsed_data = {
