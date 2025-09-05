@@ -26,7 +26,7 @@ func UploadToYandexDisk(filePath, fileName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %v", err)
 	}
-	req.Header.Set("Authorization", oauthToken)
+	req.Header.Set("Authorization", "OAuth "+oauthToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
