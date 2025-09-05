@@ -1,3 +1,4 @@
+// internal/handlers/handlers.go
 package handlers
 
 import (
@@ -6,5 +7,19 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine, db *gorm.DB) {
-	// Здесь будут роуты
+	// Основные маршруты API Gateway
+	r.GET("/health", HealthCheck)
+	r.POST("/api/v1/analyze", AnalyzeHandler(db))
+	// Другие маршруты...
+}
+
+func HealthCheck(c *gin.Context) {
+	c.JSON(200, gin.H{"status": "ok"})
+}
+
+func AnalyzeHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Обработка анализа
+		c.JSON(200, gin.H{"message": "Analysis endpoint"})
+	}
 }

@@ -134,17 +134,6 @@ services:
     networks:
       - kafka-net
 
-  scoring:
-    build:
-      context: .
-      dockerfile: Dockerfile.py
-    ports:
-      - "50051:50051"
-    depends_on:
-      - api-gateway
-    networks:
-      - kafka-net
-
   resume-service:
     build:
       context: .
@@ -160,7 +149,7 @@ services:
       - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
     depends_on:
       - postgres
-      - scoring
+      #- scoring
       - redis
       - kafka1
       - kafka2

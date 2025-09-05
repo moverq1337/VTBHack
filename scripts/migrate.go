@@ -1,3 +1,4 @@
+// scripts/migrate.go
 package scripts
 
 import (
@@ -19,7 +20,12 @@ func Migrate() {
 		log.Fatal(err)
 	}
 
-	err = dbConn.AutoMigrate(&models.Vacancy{}, &models.Resume{}, &models.Interview{})
+	// Автомиграция обновит схему, добавив отсутствующие поля
+	err = dbConn.AutoMigrate(
+		&models.Vacancy{},
+		&models.Resume{},
+		&models.Interview{},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}

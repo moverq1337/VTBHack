@@ -27,8 +27,16 @@ func SetupResumeRoutes(r *gin.Engine, db *gorm.DB) {
 	r.POST("/analyze/resume", func(c *gin.Context) { AnalyzeResume(c, db) }) // Для анализа и сопоставления
 }
 
+// internal/handlers/resume.go
+// ... (импорты)
+
 func UploadResume(c *gin.Context, db *gorm.DB) {
 	log.Info("Начало загрузки резюме")
+
+	// Создаем папку hr-ai на Яндекс.Диске если ее нет
+	if err := utils.CreateFolder("hr-ai"); err != nil {
+		log.WithError(err).Warn("Не удалось создать папку hr-ai на Яндекс.Диске")
+	}
 
 	file, err := c.FormFile("resume")
 	if err != nil {
@@ -38,8 +46,8 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 	}
 
 	ext := filepath.Ext(file.Filename)
-	if ext != ".pdf" && ext != ".docx" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неподдерживаемый формат"})
+	if ext != ".pdf" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Поддерживается только PDF формат"})
 		return
 	}
 
@@ -54,36 +62,31 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения файла"})
 		return
 	}
+	defer os.Remove(filePath) // Удаляем временный файл после обработки
 
-	var text string
-	if ext == ".pdf" {
-		f, r, err := pdf.Open(filePath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка открытия PDF"})
-			return
-		}
-		defer f.Close()
+	// Извлекаем текст из PDF
+	f, r, err := pdf.Open(filePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка открытия PDF"})
+		return
+	}
+	defer f.Close()
 
-		b, err := r.GetPlainText()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка извлечения текста из PDF"})
-			return
-		}
-
-		buf := &bytes.Buffer{}
-		buf.ReadFrom(b)
-		text = buf.String()
-	} else if ext == ".docx" {
-		text, err = utils.CallNLPParse(filePath)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка парсинга DOCX"})
-			return
-		}
+	b, err := r.GetPlainText()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка извлечения текста из PDF"})
+		return
 	}
 
+	buf := &bytes.Buffer{}
+	buf.ReadFrom(b)
+	text := buf.String()
+
+	// Загружаем на Яндекс.Диск
 	diskURL, err := utils.UploadToYandexDisk(filePath, file.Filename)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки на Яндекс Диск"})
+		log.WithError(err).Error("Ошибка загрузки на Яндекс.Диск")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка загрузки на Яндекс.Диск: " + err.Error()})
 		return
 	}
 
@@ -92,6 +95,7 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 		CandidateID: candidateID,
 		Text:        text,
 		ParsedData:  "{}",
+		FileURL:     diskURL, // Сохраняем URL файла на Яндекс.Диске
 	}
 	if err := db.Create(&resume).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения в БД"})
@@ -101,6 +105,7 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 	c.JSON(http.StatusOK, gin.H{
 		"candidate_id": candidateID.String(),
 		"file_url":     diskURL,
+		"resume_id":    resume.ID.String(),
 	})
 }
 

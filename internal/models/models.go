@@ -1,8 +1,9 @@
 package models
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Vacancy struct {
@@ -14,10 +15,11 @@ type Vacancy struct {
 }
 
 type Resume struct {
-	ID          uuid.UUID `gorm:"primaryKey;autoIncrement"`
+	ID          uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()"`
 	CandidateID uuid.UUID `gorm:"type:uuid"`
 	Text        string    `gorm:"type:text"`
-	ParsedData  string    `gorm:"type:jsonb"` // JSONB для хранения парсированных данных
+	ParsedData  string    `gorm:"type:jsonb"`
+	FileURL     string    `gorm:"type:text"` // URL файла на Яндекс.Диске
 	CreatedAt   time.Time
 }
 
