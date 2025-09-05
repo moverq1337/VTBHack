@@ -145,6 +145,29 @@ services:
     networks:
       - kafka-net
 
+  resume-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.resume  # Новый Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_URL=postgres://postgres:password@postgres:5432/hrdb?sslmode=disable
+      - GRPC_PORT=scoring:50051  # Имя сервиса scoring
+      - HTTP_PORT=:8081
+      - REDIS_ADDR=redis:6379
+      - KAFKA_BROKERS=kafka1:29091,kafka2:29092,kafka3:29093
+      - YANDEX_DISK_TOKEN=${YANDEX_DISK_TOKEN}
+    depends_on:
+      - postgres
+      - scoring
+      - redis
+      - kafka1
+      - kafka2
+      - kafka3
+    networks:
+      - kafka-net
+
 volumes:
   postgres-data:
   redis-data:
