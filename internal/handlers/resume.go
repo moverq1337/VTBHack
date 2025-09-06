@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/ledongthuc/pdf"
@@ -12,11 +17,7 @@ import (
 	"github.com/moverq1337/VTBHack/internal/utils"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/gorm"
-	"net/http"
-	"os"
-	"path/filepath"
 )
 
 var log = logrus.New()
@@ -98,13 +99,46 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 
 // UploadVacancy обрабатывает загрузку вакансии
 func UploadVacancy(c *gin.Context, db *gorm.DB) {
-	var vacancy models.Vacancy
-	if err := c.ShouldBindJSON(&vacancy); err != nil {
+	type VacancyRequest struct {
+		Title            string `json:"title"`
+		Requirements     string `json:"requirements"`
+		Responsibilities string `json:"responsibilities"`
+		Region           string `json:"region"`
+		City             string `json:"city"`
+		EmploymentType   string `json:"employment_type"`
+		WorkSchedule     string `json:"work_schedule"`
+		Experience       string `json:"experience"`
+		Education        string `json:"education"`
+		SalaryMin        int    `json:"salary_min"`
+		SalaryMax        int    `json:"salary_max"`
+		Languages        string `json:"languages"`
+		Skills           string `json:"skills"`
+	}
+
+	var req VacancyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный формат данных"})
 		return
 	}
 
-	vacancy.ID = uuid.New()
+	vacancy := models.Vacancy{
+		ID:               uuid.New(),
+		Title:            req.Title,
+		Requirements:     req.Requirements,
+		Responsibilities: req.Responsibilities,
+		Region:           req.Region,
+		City:             req.City,
+		EmploymentType:   req.EmploymentType,
+		WorkSchedule:     req.WorkSchedule,
+		Experience:       req.Experience,
+		Education:        req.Education,
+		SalaryMin:        req.SalaryMin,
+		SalaryMax:        req.SalaryMax,
+		Languages:        req.Languages,
+		Skills:           req.Skills,
+		CreatedAt:        time.Now(),
+	}
+
 	if err := db.Create(&vacancy).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения в БД"})
 		return
@@ -142,14 +176,18 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 	}
 
 	// Подключаемся к NLP-сервису
+	grpcHost := os.Getenv("GRPC_HOST")
+	if grpcHost == "" {
+		grpcHost = "scoring-service"
+	}
+	grpcPort := os.Getenv("GRPC_PORT")
+	if grpcPort == "" {
+		grpcPort = "50051"
+	}
 
-	grpcAddress := "scoring-service:50051"
-	// Формируем адрес
-	log.Infof("Подключаемся к gRPC серверу по адресу: %s", grpcAddress)
-
-	conn, err := grpc.NewClient("scoring-service:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", grpcHost, grpcPort), grpc.WithInsecure())
 	if err != nil {
-		log.WithError(err).Errorf("Ошибка gRPC-соединения к %s", grpcAddress)
+		log.WithError(err).Error("Ошибка gRPC-соединения")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка подключения к сервису анализа"})
 		return
 	}
@@ -157,18 +195,10 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 
 	client := pb.NewNLPServiceClient(conn)
 
-	// Парсинг резюме
-	parseResp, err := client.ParseResume(context.Background(), &pb.ParseRequest{Text: resume.Text})
-	if err != nil {
-		log.WithError(err).Error("Ошибка парсинга NLP")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка анализа резюме"})
-		return
-	}
-
-	// Сопоставление с вакансией
+	// Сопоставление с вакансией (без предварительного парсинга)
 	matchResp, err := client.MatchResumeVacancy(context.Background(), &pb.MatchRequest{
 		ResumeText:  resume.Text,
-		VacancyText: vacancy.Requirements + " " + vacancy.Responsibilities,
+		VacancyText: fmt.Sprintf("%s %s %s %s", vacancy.Title, vacancy.Requirements, vacancy.Responsibilities, vacancy.Skills),
 	})
 	if err != nil {
 		log.WithError(err).Error("Ошибка сопоставления")
@@ -176,20 +206,30 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
-	// Обновляем резюме с результатами парсинга
-	resume.ParsedData = parseResp.ParsedData
-	if err := db.Save(&resume).Error; err != nil {
-		log.WithError(err).Error("Ошибка обновления БД")
+	// Сохраняем результаты анализа
+	analysisResult := models.AnalysisResult{
+		ID:         uuid.New(),
+		ResumeID:   resume.ID,
+		VacancyID:  vacancy.ID,
+		MatchScore: float64(matchResp.Score),
+		CreatedAt:  time.Now(),
+	}
+
+	if err := db.Create(&analysisResult).Error; err != nil {
+		log.WithError(err).Error("Ошибка сохранения результатов анализа")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения результатов"})
 		return
 	}
 
 	// Формируем ответ
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
+		"analysis_id":  analysisResult.ID.String(),
 		"resume_id":    resume.ID.String(),
 		"vacancy_id":   vacancy.ID.String(),
-		"parsed_data":  parseResp.ParsedData,
 		"match_score":  fmt.Sprintf("%.2f%%", matchResp.Score*100),
 		"candidate_id": resume.CandidateID.String(),
-	})
+		"created_at":   analysisResult.CreatedAt,
+	}
+
+	c.JSON(http.StatusOK, response)
 }

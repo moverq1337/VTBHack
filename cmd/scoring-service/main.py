@@ -9,7 +9,7 @@ import json
 class NLPService(nlp_pb2_grpc.NLPServiceServicer):
     def ParseResume(self, request, context):
         """Парсинг резюме и извлечение структурированных данных"""
-        # Здесь реализуйте парсинг резюме
+        # Простая реализация
         parsed_data = {
             "skills": ["Go", "Python", "PostgreSQL"],
             "experience": 5,
@@ -21,9 +21,6 @@ class NLPService(nlp_pb2_grpc.NLPServiceServicer):
 
     def MatchResumeVacancy(self, request, context):
         """Сопоставление резюме с вакансией"""
-        # Простая реализация сопоставления
-        # В реальности здесь должен быть сложный алгоритм
-
         resume_text = request.resume_text.lower()
         vacancy_text = request.vacancy_text.lower()
 
@@ -35,7 +32,7 @@ class NLPService(nlp_pb2_grpc.NLPServiceServicer):
             if keyword in resume_text and keyword in vacancy_text:
                 matches += 1
 
-        score = min(matches / len(keywords), 1.0)  # Оценка от 0 до 1
+        score = min(matches / len(keywords), 1.0)
 
         return nlp_pb2.MatchResponse(score=score)
 

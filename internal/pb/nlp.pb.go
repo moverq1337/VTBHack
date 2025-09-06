@@ -7,11 +7,12 @@
 package pb
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -67,7 +68,7 @@ func (x *ParseRequest) GetText() string {
 
 type ParseResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ParsedData    string                 `protobuf:"bytes,1,opt,name=parsed_data,json=parsedData,proto3" json:"parsed_data,omitempty"` // JSON с навыками, опытом и т.д.
+	ParsedData    string                 `protobuf:"bytes,1,opt,name=parsed_data,json=parsedData,proto3" json:"parsed_data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -163,7 +164,7 @@ func (x *MatchRequest) GetVacancyText() string {
 
 type MatchResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Score         float32                `protobuf:"fixed32,1,opt,name=score,proto3" json:"score,omitempty"` // Косинусное сходство (0-1)
+	Score         float32                `protobuf:"fixed32,1,opt,name=score,proto3" json:"score,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -220,11 +221,11 @@ const file_proto_nlp_proto_rawDesc = "" +
 	"resumeText\x12!\n" +
 	"\fvacancy_text\x18\x02 \x01(\tR\vvacancyText\"%\n" +
 	"\rMatchResponse\x12\x14\n" +
-	"\x05score\x18\x01 \x01(\x02R\x05score2{\n" +
+	"\x05score\x18\x01 \x01(\x02R\x05score2\x7f\n" +
 	"\n" +
-	"NLPService\x122\n" +
-	"\vParseResume\x12\x10.pb.ParseRequest\x1a\x11.pb.ParseResponse\x129\n" +
-	"\x12MatchResumeVacancy\x12\x10.pb.MatchRequest\x1a\x11.pb.MatchResponseB+Z)github.com/moverq1337/VTBHack/internal/pbb\x06proto3"
+	"NLPService\x124\n" +
+	"\vParseResume\x12\x10.pb.ParseRequest\x1a\x11.pb.ParseResponse\"\x00\x12;\n" +
+	"\x12MatchResumeVacancy\x12\x10.pb.MatchRequest\x1a\x11.pb.MatchResponse\"\x00B+Z)github.com/moverq1337/VTBHack/internal/pbb\x06proto3"
 
 var (
 	file_proto_nlp_proto_rawDescOnce sync.Once

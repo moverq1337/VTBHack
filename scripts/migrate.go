@@ -1,4 +1,3 @@
-// scripts/migrate.go
 package scripts
 
 import (
@@ -24,7 +23,7 @@ func Migrate() {
 	err = dbConn.AutoMigrate(
 		&models.Vacancy{},
 		&models.Resume{},
-		&models.Interview{},
+		&models.AnalysisResult{},
 	)
 	if err != nil {
 		log.Fatal(err)

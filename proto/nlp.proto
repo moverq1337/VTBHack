@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package pb;
 
-option go_package = "github.com/moverq1337/VTBHack/internal/pb";  
+option go_package = "github.com/moverq1337/VTBHack/internal/pb";
 
 service NLPService {
-  rpc ParseResume(ParseRequest) returns (ParseResponse);
-  rpc MatchResumeVacancy(MatchRequest) returns (MatchResponse);  // Новый метод
+  rpc ParseResume(ParseRequest) returns (ParseResponse) {}
+  rpc MatchResumeVacancy(MatchRequest) returns (MatchResponse) {}
 }
 
 message ParseRequest {
@@ -14,7 +14,7 @@ message ParseRequest {
 }
 
 message ParseResponse {
-  string parsed_data = 1;  // JSON с навыками, опытом и т.д.
+  string parsed_data = 1;
 }
 
 message MatchRequest {
@@ -23,5 +23,5 @@ message MatchRequest {
 }
 
 message MatchResponse {
-  float score = 1;  // Косинусное сходство (0-1)
+  float score = 1;
 }
