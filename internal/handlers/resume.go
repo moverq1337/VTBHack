@@ -4,12 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/ledongthuc/pdf"
@@ -18,7 +12,11 @@ import (
 	"github.com/moverq1337/VTBHack/internal/utils"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"gorm.io/gorm"
+	"net/http"
+	"os"
+	"path/filepath"
 )
 
 var log = logrus.New()
@@ -144,26 +142,12 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 	}
 
 	// Подключаемся к NLP-сервису
-	grpcHost := os.Getenv("GRPC_HOST")
-	grpcPort := os.Getenv("GRPC_PORT")
 
-	// Убедимся, что переменные не пустые и не содержат лишних символов
-	if grpcHost == "" {
-		grpcHost = "scoring-service"
-	}
-	if grpcPort == "" {
-		grpcPort = "50051"
-	}
-
-	// Убираем возможные пробелы и лишние символы
-	grpcHost = strings.TrimSpace(grpcHost)
-	grpcPort = strings.TrimSpace(grpcPort)
-
+	grpcAddress := "scoring-service:50051"
 	// Формируем адрес
-	grpcAddress := net.JoinHostPort(grpcHost, grpcPort)
 	log.Infof("Подключаемся к gRPC серверу по адресу: %s", grpcAddress)
 
-	conn, err := grpc.Dial(grpcAddress, grpc.WithInsecure())
+	conn, err := grpc.NewClient("scoring-service:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.WithError(err).Errorf("Ошибка gRPC-соединения к %s", grpcAddress)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка подключения к сервису анализа"})
