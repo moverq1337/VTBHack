@@ -1,4 +1,3 @@
-// internal/handlers/handlers.go
 package handlers
 
 import (
@@ -6,20 +5,28 @@ import (
 	"gorm.io/gorm"
 )
 
+// SetupRoutes настраивает маршруты для API Gateway
 func SetupRoutes(r *gin.Engine, db *gorm.DB) {
-	// Основные маршруты API Gateway
+	api := r.Group("/api")
+	{
+		api.POST("/upload/resume", func(c *gin.Context) { UploadResume(c, db) })
+		api.POST("/upload/vacancy", func(c *gin.Context) { UploadVacancy(c, db) })
+		api.POST("/analyze", func(c *gin.Context) { AnalyzeResume(c, db) })
+		api.GET("/health", HealthCheck) // Добавьте эту строку
+	}
+
 	r.GET("/health", HealthCheck)
-	r.POST("/api/v1/analyze", AnalyzeHandler(db))
-	// Другие маршруты...
 }
 
+// SetupResumeRoutes настраивает маршруты для Resume Service
+func SetupResumeRoutes(r *gin.Engine, db *gorm.DB) {
+	r.POST("/upload/resume", func(c *gin.Context) { UploadResume(c, db) })
+	r.POST("/upload/vacancy", func(c *gin.Context) { UploadVacancy(c, db) })
+	r.POST("/analyze", func(c *gin.Context) { AnalyzeResume(c, db) })
+	r.GET("/health", HealthCheck)
+}
+
+// HealthCheck проверяет статус сервиса
 func HealthCheck(c *gin.Context) {
 	c.JSON(200, gin.H{"status": "ok"})
-}
-
-func AnalyzeHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// Обработка анализа
-		c.JSON(200, gin.H{"message": "Analysis endpoint"})
-	}
 }

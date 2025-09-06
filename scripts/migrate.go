@@ -20,7 +20,7 @@ func Migrate() {
 		log.Fatal(err)
 	}
 
-	// Автомиграция обновит схему, добавив отсутствующие поля
+	// Автомиграция всех моделей
 	err = dbConn.AutoMigrate(
 		&models.Vacancy{},
 		&models.Resume{},

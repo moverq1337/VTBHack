@@ -3,14 +3,16 @@ package utils
 import (
 	"context"
 	"github.com/moverq1337/VTBHack/internal/pb"
-	//"log"
-	//
-	//"github.com/moverq1337/VTBHack/internal/db"
 	"google.golang.org/grpc"
+	"os"
 )
 
+// CallNLPParse вызывает NLP-сервис для парсинга текста
 func CallNLPParse(text string) (string, error) {
-	conn, err := grpc.Dial(":50051", grpc.WithInsecure())
+	grpcHost := os.Getenv("GRPC_HOST")
+	grpcPort := os.Getenv("GRPC_PORT")
+
+	conn, err := grpc.Dial(grpcHost+":"+grpcPort, grpc.WithInsecure())
 	if err != nil {
 		return "", err
 	}
