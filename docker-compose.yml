@@ -173,6 +173,17 @@ services:
     networks:
       - kafka-net
 
+  interview-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.interview
+    ports:
+      - "8765:8765"
+    environment:
+      - YANDEX_API_KEY=${YANDEX_API_KEY}  # Добавьте эту переменную в ваш .env файл
+    networks:
+      - kafka-net
+
 volumes:
   postgres-data:
   redis-data:

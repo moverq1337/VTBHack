@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Avatar - Голосовое интервью</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .question {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        .progress {
+            margin: 20px 0;
+        }
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .processing {
+            display: none;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+<h1>HR Avatar - Голосовое интервью</h1>
+
+<div id="setup">
+    <h2>Настройка интервью</h2>
+    <div>
+        <label>ID кандидата: <input type="text" id="candidateId" value="22328f8d-79fa-4a43-85bd-9bf0149da004"></label>
+    </div>
+    <div>
+        <label>ID вакансии: <input type="text" id="vacancyId" value="8b49b6cd-1411-4c41-8176-a26524468eb2"></label>
+    </div>
+    <button onclick="startInterview()">Начать интервью</button>
+</div>
+
+<div id="interview" style="display: none;">
+    <div class="progress">
+        Вопрос <span id="currentQuestion">1</span> из <span id="totalQuestions">4</span>
+    </div>
+    <div class="question" id="questionText"></div>
+
+    <div class="controls">
+        <button id="recordBtn" onclick="toggleRecording()">Начать запись</button>
+        <button id="nextBtn" onclick="nextQuestion()" disabled>Следующий вопрос</button>
+    </div>
+
+    <div class="processing" id="processing">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p>Обработка ответа... <span id="progressText">0%</span></p>
+    </div>
+
+    <div id="status"></div>
+</div>
+
+<div id="results" class="results" style="display: none;">
+    <h2>Результаты интервью</h2>
+    <div id="resultsContent"></div>
+</div>
+
+<script>
+    let websocket;
+    let mediaRecorder;
+    let audioChunks = [];
+    let sessionId;
+    let isRecording = false;
+    websocket.onmessage = async function(event) {
+        const data = JSON.parse(event.data);
+        logger.info(`Получено сообщение типа: ${data.type}`);
+
+        if (data.type === 'question') {
+            sessionId = data.session_id;
+
+            // Воспроизводим аудио вопроса
+            if (data.question_audio) {
+                await playQuestionAudio(data.question_audio);
+            }
+
+            document.getElementById('questionText').textContent = data.question;
+            document.getElementById('currentQuestion').textContent = data.question_number;
+            document.getElementById('totalQuestions').textContent = data.total_questions;
+            document.getElementById('nextBtn').disabled = true;
+            document.getElementById('recordBtn').disabled = false;
+        }
+        else if (data.type === 'interview_completed') {
+            showResults(data);
+        }
+        else if (data.type === 'error') {
+            document.getElementById('status').textContent = 'Ошибка: ' + data.message;
+            document.getElementById('recordBtn').disabled = false;
+        }
+    };
+
+    async function playQuestionAudio(audioBase64) {
+        try {
+            const audioBlob = new Blob(
+                [Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0))],
+                { type: 'audio/mp3' }
+            );
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            const audio = new Audio(audioUrl);
+            document.getElementById('status').textContent = 'Воспроизведение вопроса...';
+
+            await new Promise((resolve) => {
+                audio.onended = resolve;
+                audio.play();
+            });
+
+            URL.revokeObjectURL(audioUrl);
+            document.getElementById('status').textContent = 'Вопрос завершен, готово к записи';
+
+        } catch (error) {
+            console.error('Ошибка воспроизведения аудио:', error);
+            document.getElementById('status').textContent = 'Готово к записи ответа';
+        }
+    }
+
+    async function simulateProcessing() {
+        const processingElem = document.getElementById('processing');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+
+        processingElem.style.display = 'block';
+
+        for (let i = 0; i <= 100; i += 5) {
+            progressFill.style.width = i + '%';
+            progressText.textContent = i + '%';
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        processingElem.style.display = 'none';
+    }
+
+    async function startInterview() {
+        const candidateId = document.getElementById('candidateId').value;
+        const vacancyId = document.getElementById('vacancyId').value;
+
+        if (!candidateId || !vacancyId) {
+            alert('Заполните ID кандидата и вакансии');
+            return;
+        }
+
+        // Подключаемся к WebSocket серверу
+        websocket = new WebSocket('ws://localhost:8765');
+
+        websocket.onopen = function() {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('interview').style.display = 'block';
+
+            // Начинаем интервью
+            websocket.send(JSON.stringify({
+                type: 'start_interview',
+                candidate_id: candidateId,
+                vacancy_id: vacancyId
+            }));
+        };
+
+        websocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'question') {
+                sessionId = data.session_id;
+                document.getElementById('questionText').textContent = data.question;
+                document.getElementById('currentQuestion').textContent = data.question_number;
+                document.getElementById('totalQuestions').textContent = data.total_questions;
+                document.getElementById('nextBtn').disabled = true;
+                document.getElementById('recordBtn').disabled = false;
+            }
+            else if (data.type === 'interview_completed') {
+                showResults(data);
+            }
+        };
+
+        websocket.onerror = function(error) {
+            console.error('WebSocket ошибка:', error);
+            alert('Ошибка подключения к серверу интервью');
+        };
+    }
+
+    async function toggleRecording() {
+        if (!isRecording) {
+            // Начинаем запись
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        volume: 1.0
+                    }
+                });
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 16000
+                });
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+
+                    reader.onload = async function() {
+                        // Показываем прогресс бар
+                        await simulateProcessing();
+
+                        const base64Audio = reader.result.split(',')[1];
+
+                        // Отправляем аудио на сервер
+                        websocket.send(JSON.stringify({
+                            type: 'audio_response',
+                            session_id: sessionId,
+                            audio: base64Audio
+                        }));
+
+                        document.getElementById('status').textContent = 'Ответ отправлен';
+                    };
+
+                    reader.readAsDataURL(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('recordBtn').textContent = 'Остановить запись';
+                document.getElementById('status').textContent = 'Идет запись...';
+            } catch (error) {
+                console.error('Ошибка доступа к микрофону:', error);
+                alert('Не удалось получить доступ к микрофону');
+            }
+        } else {
+            // Останавливаем запись
+            mediaRecorder.stop();
+            isRecording = false;
+            document.getElementById('recordBtn').textContent = 'Начать запись';
+            document.getElementById('recordBtn').disabled = true;
+        }
+    }
+
+    function nextQuestion() {
+        document.getElementById('recordBtn').disabled = false;
+        document.getElementById('nextBtn').disabled = true;
+        document.getElementById('status').textContent = 'Готово к записи';
+    }
+
+    function showResults(data) {
+        document.getElementById('interview').style.display = 'none';
+        document.getElementById('results').style.display = 'block';
+
+        let resultsHtml = `<p><strong>Общий балл: ${(data.score * 25).toFixed(1)}/100</strong></p>`;
+
+        data.answers.forEach((answer, index) => {
+            resultsHtml += `
+                    <div>
+                        <p><strong>Вопрос ${index + 1}:</strong> ${answer.question}</p>
+                        <p><strong>Ответ:</strong> ${answer.answer}</p>
+                        <p><strong>Балл:</strong> ${(answer.score * 25).toFixed(1)}/25</p>
+                        <hr>
+                    </div>
+                `;
+        });
+
+        document.getElementById('resultsContent').innerHTML = resultsHtml;
+    }
+</script>
+</body>
+</html>

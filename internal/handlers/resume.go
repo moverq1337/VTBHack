@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/unidoc/unioffice/common/license"
 	"google.golang.org/grpc/credentials/insecure"
@@ -260,13 +261,27 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
+	// Парсим резюме для получения деталей
+	parseResp, err := client.ParseResume(context.Background(), &pb.ParseRequest{
+		Text: resume.Text,
+	})
+	if err != nil {
+		log.WithError(err).Error("Ошибка парсинга резюме")
+	}
+
+	var parsedData map[string]interface{}
+	if err := json.Unmarshal([]byte(parseResp.ParsedData), &parsedData); err != nil {
+		log.WithError(err).Error("Ошибка разбора JSON данных парсинга")
+		parsedData = make(map[string]interface{})
+	}
+
 	// Сохраняем результаты анализа
 	analysisResult := models.AnalysisResult{
 		ID:         uuid.New(),
 		ResumeID:   resume.ID,
 		VacancyID:  vacancy.ID,
 		MatchScore: float64(matchResp.Score),
-		Details:    "{}",
+		Details:    parseResp.ParsedData, // Сохраняем полные данные парсинга
 		CreatedAt:  time.Now(),
 	}
 
@@ -276,26 +291,27 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
-	// Сохраняем детали анализа (заглушка - нужно реализовать логику анализа)
-	analysisDetails := []models.AnalysisDetail{
-		{
-			ID:               uuid.New(),
-			AnalysisResultID: analysisResult.ID,
-			Category:         "skills",
-			Criteria:         "Общие навыки",
-			ResumeValue:      "Навыки из резюме",
-			VacancyValue:     "Требуемые навыки",
-			MatchScore:       0.8,
-			Weight:           0.4,
-			CreatedAt:        time.Now(),
-		},
-		// Добавьте другие критерии...
-	}
-
-	for _, detail := range analysisDetails {
-		if err := db.Create(&detail).Error; err != nil {
-			log.WithError(err).Error("Ошибка сохранения деталей анализа")
-			// Не прерываем выполнение, продолжаем сохранять другие детали
+	// Сохраняем детали анализа
+	if skills, ok := parsedData["skills"].(map[string]interface{}); ok {
+		for category, skillList := range skills {
+			if skillsArr, ok := skillList.([]interface{}); ok {
+				for _, skill := range skillsArr {
+					analysisDetail := models.AnalysisDetail{
+						ID:               uuid.New(),
+						AnalysisResultID: analysisResult.ID,
+						Category:         "skills",
+						Criteria:         category,
+						ResumeValue:      fmt.Sprintf("%v", skill),
+						VacancyValue:     "",  // Можно добавить проверку наличия в вакансии
+						MatchScore:       0.8, // Заглушка
+						Weight:           0.3, // Заглушка
+						CreatedAt:        time.Now(),
+					}
+					if err := db.Create(&analysisDetail).Error; err != nil {
+						log.WithError(err).Error("Ошибка сохранения деталей анализа")
+					}
+				}
+			}
 		}
 	}
 
@@ -307,5 +323,6 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		"match_score":  fmt.Sprintf("%.2f%%", matchResp.Score*100),
 		"candidate_id": resume.CandidateID.String(),
 		"created_at":   analysisResult.CreatedAt,
+		"details":      parsedData, // Добавляем детали в ответ
 	})
 }

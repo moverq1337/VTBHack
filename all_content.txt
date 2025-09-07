@@ -10,7 +10,21 @@ FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/bin/api-gateway .
 COPY .env .
+COPY frontend ./frontend 
 CMD ["./api-gateway"]
+=== Dockerfile.interview ===
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY cmd/interview-service/requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY cmd/interview-service/main.py .
+
+EXPOSE 8765
+
+CMD ["python", "main.py"]
 === Dockerfile.py ===
 FROM python:3.11-slim
 
@@ -122,6 +136,347 @@ func main() {
 	}
 }
 
+=== cmd/interview-service/main.py ===
+import asyncio
+import websockets
+import json
+import base64
+import logging
+from typing import Dict
+import uuid
+import io
+import wave
+import tempfile
+import os
+from gtts import gTTS
+import edge_tts
+import aiohttp
+from datetime import datetime
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('interview_service.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class InterviewManager:
+    def __init__(self):
+        self.sessions: Dict[str, dict] = {}
+        self.questions = [
+            "Расскажите о вашем опыте работы с Docker и контейнеризацией",
+            "Как вы организуете процесс CI/CD в своих проектах?",
+            "Какие методы мониторинга и логирования вы используете?",
+            "Расскажите о вашем опыте работы с облачными платформами"
+        ]
+
+    def create_session(self, candidate_id: str, vacancy_id: str) -> str:
+        session_id = str(uuid.uuid4())
+        self.sessions[session_id] = {
+            'candidate_id': candidate_id,
+            'vacancy_id': vacancy_id,
+            'current_question': 0,
+            'answers': [],
+            'score': 0,
+            'start_time': datetime.now().isoformat()
+        }
+        logger.info(f"Создана сессия интервью: {session_id}")
+        return session_id
+
+    def get_next_question(self, session_id: str) -> str:
+        session = self.sessions.get(session_id)
+        if not session:
+            logger.warning(f"Сессия не найдена: {session_id}")
+            return None
+
+        if session['current_question'] < len(self.questions):
+            question = self.questions[session['current_question']]
+            logger.info(f"Вопрос {session['current_question'] + 1}: {question}")
+            return question
+        logger.info("Все вопросы заданы")
+        return None
+
+    def save_answer(self, session_id: str, answer: str, score: float):
+        session = self.sessions.get(session_id)
+        if not session:
+            logger.error(f"Сессия не найдена при сохранении ответа: {session_id}")
+            return False
+
+        question = self.questions[session['current_question']]
+        session['answers'].append({
+            'question': question,
+            'answer': answer,
+            'score': score,
+            'timestamp': datetime.now().isoformat()
+        })
+        session['score'] += score
+        session['current_question'] += 1
+
+        logger.info(f"Сохранен ответ для сессии {session_id}: score={score}, answer_length={len(answer)}")
+        return True
+
+    def get_results(self, session_id: str) -> dict:
+        session = self.sessions.get(session_id)
+        if not session:
+            logger.warning(f"Сессия не найдена при получении результатов: {session_id}")
+            return None
+
+        session['end_time'] = datetime.now().isoformat()
+        session['duration'] = (datetime.fromisoformat(session['end_time']) -
+                              datetime.fromisoformat(session['start_time'])).total_seconds()
+
+        logger.info(f"Интервью завершено: {session_id}, длительность: {session['duration']} сек")
+        return session
+
+interview_manager = InterviewManager()
+
+async def text_to_speech(text: str, lang: str = 'ru') -> bytes:
+    """Преобразование текста в речь"""
+    try:
+        logger.info(f"Синтез речи: '{text}'")
+
+        # Используем gTTS (Google Text-to-Speech)
+        tts = gTTS(text=text, lang=lang, slow=False)
+
+        # Сохраняем во временный файл
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+            tts.save(tmp_file.name)
+            with open(tmp_file.name, 'rb') as f:
+                audio_data = f.read()
+
+        os.unlink(tmp_file.name)
+        logger.info(f"Аудио сгенерировано, размер: {len(audio_data)} байт")
+        return audio_data
+
+    except Exception as e:
+        logger.error(f"Ошибка синтеза речи: {e}")
+        # Возвращаем пустые данные в случае ошибки
+        return b''
+
+async def speech_to_text(audio_data: bytes) -> str:
+    """Преобразование речи в текст (заглушка для MVP)"""
+    try:
+        logger.info(f"Распознавание речи, размер аудио: {len(audio_data)} байт")
+
+        # Здесь должна быть интеграция с настоящим Speech-to-Text сервисом
+        # Например: Yandex SpeechKit, Google Speech-to-Text, etc.
+
+        # Заглушка для демонстрации
+        await asyncio.sleep(1)  # Имитация обработки
+
+        # Автоматически генерируем ответ на основе вопроса
+        current_session = None
+        for session_id, session in interview_manager.sessions.items():
+            if session['current_question'] > 0:
+                current_session = session
+                break
+
+        if current_session:
+            current_question_idx = current_session['current_question']
+            question = interview_manager.questions[current_question_idx]
+
+            if "Docker" in question:
+                transcribed_text = "Я работал с Docker более 3 лет, использовал его для контейнеризации микросервисов. Настраивал Docker Compose для локальной разработки и Docker Swarm для продакшена."
+                score = 0.85
+            elif "CI/CD" in question:
+                transcribed_text = "Настраивал Jenkins и GitLab CI для автоматической сборки и деплоя. Использовал пайплайны для тестирования, сборки и развертывания приложений."
+                score = 0.78
+            elif "мониторинг" in question:
+                transcribed_text = "Использовал Prometheus для сбора метрик, Grafana для визуализации и ELK стек для логирования. Настраивал алерты на критические ошибки."
+                score = 0.82
+            elif "облачны" in question:
+                transcribed_text = "Работал с AWS и Yandex Cloud. Настраивал VPC, EC2 инстансы, S3 хранилища и управлял Kubernetes кластерами."
+                score = 0.80
+            else:
+                transcribed_text = "Кандидат продемонстрировал хорошие технические знания и опыт работы в данной области."
+                score = 0.75
+        else:
+            transcribed_text = "Спасибо за ваш ответ. Переходим к следующему вопросу."
+            score = 0.7
+
+        logger.info(f"Распознанный текст: '{transcribed_text}', оценка: {score}")
+        return transcribed_text, score
+
+    except Exception as e:
+        logger.error(f"Ошибка распознавания речи: {e}")
+        return "Извините, не удалось распознать речь.", 0.3
+
+async def handle_interview(websocket):
+    client_ip = websocket.remote_address[0]
+    logger.info(f"Новое подключение от {client_ip}")
+
+    try:
+        async for message in websocket:
+            data = json.loads(message)
+            logger.info(f"Получено сообщение типа: {data['type']}")
+
+            if data['type'] == 'start_interview':
+                # Начинаем новое интервью
+                session_id = interview_manager.create_session(
+                    data['candidate_id'],
+                    data['vacancy_id']
+                )
+                first_question = interview_manager.get_next_question(session_id)
+
+                # Генерируем аудио вопроса
+                question_audio = await text_to_speech(first_question)
+                audio_base64 = base64.b64encode(question_audio).decode('utf-8')
+
+                await websocket.send(json.dumps({
+                    'type': 'question',
+                    'session_id': session_id,
+                    'question': first_question,
+                    'question_audio': audio_base64,
+                    'question_number': 1,
+                    'total_questions': len(interview_manager.questions)
+                }))
+                logger.info(f"Отправлен вопрос 1 для сессии {session_id}")
+
+            elif data['type'] == 'audio_response':
+                # Обрабатываем аудио ответ
+                session_id = data['session_id']
+                logger.info(f"Обработка аудио ответа для сессии {session_id}")
+
+                try:
+                    audio_data = base64.b64decode(data['audio'])
+                    logger.info(f"Получено аудио: {len(audio_data)} байт")
+
+                    # Распознаем речь
+                    transcribed_text, score = await speech_to_text(audio_data)
+
+                    # Сохраняем ответ
+                    interview_manager.save_answer(session_id, transcribed_text, score)
+
+                    # Получаем следующий вопрос
+                    next_question = interview_manager.get_next_question(session_id)
+
+                    if next_question:
+                        # Генерируем аудио следующего вопроса
+                        question_audio = await text_to_speech(next_question)
+                        audio_base64 = base64.b64encode(question_audio).decode('utf-8')
+
+                        await websocket.send(json.dumps({
+                            'type': 'question',
+                            'session_id': session_id,
+                            'question': next_question,
+                            'question_audio': audio_base64,
+                            'question_number': interview_manager.sessions[session_id]['current_question'] + 1,
+                            'total_questions': len(interview_manager.questions)
+                        }))
+                        logger.info(f"Отправлен вопрос {interview_manager.sessions[session_id]['current_question'] + 1}")
+                    else:
+                        # Интервью завершено
+                        results = interview_manager.get_results(session_id)
+                        await websocket.send(json.dumps({
+                            'type': 'interview_completed',
+                            'session_id': session_id,
+                            'score': results['score'],
+                            'answers': results['answers'],
+                            'total_score': results['score'] * 25,  # Конвертируем в 100-балльную систему
+                            'duration': results['duration']
+                        }))
+                        logger.info(f"Интервью завершено для сессии {session_id}")
+
+                except Exception as e:
+                    logger.error(f"Ошибка обработки аудио: {e}")
+                    await websocket.send(json.dumps({
+                        'type': 'error',
+                        'message': 'Ошибка обработки аудио ответа'
+                    }))
+
+    except websockets.exceptions.ConnectionClosed as e:
+        logger.info(f"Соединение закрыто: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике интервью: {e}")
+        try:
+            await websocket.send(json.dumps({
+                'type': 'error',
+                'message': 'Внутренняя ошибка сервера'
+            }))
+        except:
+            pass
+
+async def health_check():
+    """Периодическая проверка здоровья сервиса"""
+    while True:
+        logger.info(f"Активных сессий: {len(interview_manager.sessions)}")
+        await asyncio.sleep(60)
+
+async def main():
+    # Запускаем фоновую задачу для проверки здоровья
+    asyncio.create_task(health_check())
+
+    # Запускаем WebSocket сервер
+    server = await websockets.serve(handle_interview, "0.0.0.0", 8765)
+    logger.info("WebSocket сервер запущен на порту 8765")
+
+    try:
+        await server.wait_closed()
+    except KeyboardInterrupt:
+        logger.info("Остановка сервера...")
+    except Exception as e:
+        logger.error(f"Ошибка сервера: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+=== cmd/interview-service/requirements.txt ===
+websockets==12.0
+gTTS==2.3.2
+edge-tts==6.1.3
+aiohttp==3.9.1
+uuid==1.30
+=== cmd/resume-service/main.go ===
+package main
+
+import (
+	"log"
+
+	"github.com/gin-gonic/gin"
+	"github.com/moverq1337/VTBHack/internal/config"
+	"github.com/moverq1337/VTBHack/internal/db"
+	"github.com/moverq1337/VTBHack/internal/handlers"
+)
+
+func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbConn, err := db.Connect(cfg.DBURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r := gin.Default()
+
+	// Настройка CORS
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
+	// Настройка маршрутов для Resume Service
+	handlers.SetupResumeRoutes(r, dbConn)
+
+	log.Printf("Resume Service запущен на порту %s", cfg.HTTPPort)
+	if err := r.Run(cfg.HTTPPort); err != nil {
+		log.Fatal(err)
+	}
+}
+
 === cmd/scoring-service/main.py ===
 # scoring-service/main.py
 import grpc
@@ -130,44 +485,261 @@ import time
 import nlp_pb2
 import nlp_pb2_grpc
 import json
+import spacy
+import re
+import logging
+from datetime import datetime
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+from collections import defaultdict
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('scoring_service.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Загрузка моделей
+logger.info("Загрузка моделей NLP...")
+try:
+    nlp = spacy.load("ru_core_news_sm")
+    sentence_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+    logger.info("Модели успешно загружены")
+except Exception as e:
+    logger.error(f"Ошибка загрузки моделей: {e}")
+    raise
 
 class NLPService(nlp_pb2_grpc.NLPServiceServicer):
-    def ParseResume(self, request, context):
-        """Парсинг резюме и извлечение структурированных данных"""
-        # Простая реализация
-        parsed_data = {
-            "skills": ["Go", "Python", "PostgreSQL"],
-            "experience": 5,
-            "education": "Высшее",
-            "languages": ["Русский", "Английский"]
+    def extract_experience(self, text):
+        """Извлечение опыта работы из текста резюме"""
+        logger.info("Извлечение опыта работы из резюме")
+
+        # Улучшенные паттерны для поиска опыта работы
+        experience_patterns = [
+            r'Опыт работы.*?(\d+)[^\d]*год',
+            r'(\d+)[^\d]*лет.*?опыт',
+            r'стаж.*?(\d+)[^\d]*год',
+            r'работаю.*?(\d+)[^\d]*год',
+            r'experience.*?(\d+)[^\d]*year'
+        ]
+
+        max_experience = 0
+        for pattern in experience_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                exp = int(match.group(1))
+                if exp > max_experience:
+                    max_experience = exp
+
+        # Если не нашли цифры, попробуем определить по датам
+        if max_experience == 0:
+            date_pattern = r'(\d{4})\s*[-—]\s*(\d{4}|настоящее|н\.в\.|сейчас)'
+            dates = re.findall(date_pattern, text)
+            if dates:
+                current_year = datetime.now().year
+                total_experience = 0
+                for start_year, end_year in dates:
+                    try:
+                        start = int(start_year)
+                        end = current_year if end_year in ['настоящее', 'н.в.', 'сейчас'] else int(end_year)
+                        exp = end - start
+                        total_experience += exp
+                    except:
+                        continue
+
+                if total_experience > 0:
+                    max_experience = total_experience / len(dates)  # Средний опыт
+
+        logger.info(f"Найден опыт: {max_experience} лет")
+        return max_experience
+
+    def extract_skills(self, text):
+        """Извлечение навыков из текста резюме"""
+        logger.info("Извлечение навыков из резюме")
+
+        # Расширенный список навыков
+        skill_categories = {
+            'programming': ['python', 'java', 'javascript', 'c#', 'c++', 'php', 'ruby', 'go', 'rust'],
+            'web': ['html', 'css', 'react', 'angular', 'vue', 'django', 'flask', 'node.js', 'express'],
+            'database': ['sql', 'mysql', 'postgresql', 'mongodb', 'redis', 'oracle'],
+            'devops': ['docker', 'kubernetes', 'jenkins', 'git', 'ci/cd', 'ansible', 'terraform'],
+            'os': ['linux', 'windows', 'macos', 'ubuntu', 'debian', 'centos'],
+            'networking': ['tcp/ip', 'dns', 'dhcp', 'vpn', 'lan', 'wan'],
+            'cloud': ['aws', 'azure', 'google cloud', 'gcp', 'digitalocean'],
+            'soft': ['лидерство', 'коммуникация', 'аналитика', 'решение проблем', 'тайм-менеджмент']
         }
 
-        return nlp_pb2.ParseResponse(parsed_data=json.dumps(parsed_data))
+        found_skills = defaultdict(list)
+        text_lower = text.lower()
+
+        for category, skills in skill_categories.items():
+            for skill in skills:
+                if re.search(r'\b' + re.escape(skill) + r'\b', text_lower):
+                    found_skills[category].append(skill)
+
+        logger.info(f"Найдены навыки: {dict(found_skills)}")
+        return dict(found_skills)
+
+    def extract_education(self, text):
+        """Извлечение образования из текста резюме"""
+        logger.info("Извлечение образования из резюме")
+
+        education_patterns = [
+            r'высшее образование',
+            r'среднее специальное',
+            r'неоконченное высшее',
+            r'бакалавр',
+            r'магистр',
+            r'кандидат наук',
+            r'доктор наук'
+        ]
+
+        education_levels = []
+        for pattern in education_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                education_levels.append(pattern)
+
+        # Извлечение учебных заведений
+        universities = []
+        uni_patterns = [
+            r'([А-Я][а-я]+\s*(университет|институт|академия))',
+            r'([А-Я][а-я]+\s*государственный\s*(университет|институт))',
+            r'(МГУ|СПбГУ|МФТИ|МГТУ|ВШЭ)'
+        ]
+
+        for pattern in uni_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                universities.append(match.group(0))
+
+        result = {
+            "levels": education_levels,
+            "institutions": list(set(universities))  # Убираем дубликаты
+        }
+
+        logger.info(f"Найдено образование: {result}")
+        return result
+
+    def ParseResume(self, request, context):
+        """Парсинг резюме и извлечение структурированных данных"""
+        logger.info(f"Начало парсинга резюме, длина текста: {len(request.text)} символов")
+
+        text = request.text
+
+        try:
+            # Извлечение опыта работы
+            experience = self.extract_experience(text)
+
+            # Извлечение навыков
+            skills = self.extract_skills(text)
+
+            # Извлечение образования
+            education = self.extract_education(text)
+
+            # Извлечение языков
+            languages = ['Русский']  # По умолчанию
+            lang_patterns = {
+                'Английский': r'английский',
+                'Немецкий': r'немецкий',
+                'Французский': r'французский',
+                'Испанский': r'испанский',
+                'Китайский': r'китайский'
+            }
+
+            for lang, pattern in lang_patterns.items():
+                if re.search(pattern, text, re.IGNORECASE):
+                    languages.append(lang)
+
+            parsed_data = {
+                "skills": skills,
+                "experience": experience,
+                "education": education,
+                "languages": languages
+            }
+
+            logger.info(f"Результаты парсинга: {parsed_data}")
+            return nlp_pb2.ParseResponse(parsed_data=json.dumps(parsed_data, ensure_ascii=False))
+
+        except Exception as e:
+            logger.error(f"Ошибка при парсинге резюме: {e}")
+            # Возвращаем пустые данные в случае ошибки
+            return nlp_pb2.ParseResponse(parsed_data=json.dumps({
+                "skills": {},
+                "experience": 0,
+                "education": {"levels": [], "institutions": []},
+                "languages": ["Русский"]
+            }, ensure_ascii=False))
 
     def MatchResumeVacancy(self, request, context):
-        """Сопоставление резюме с вакансией"""
-        resume_text = request.resume_text.lower()
-        vacancy_text = request.vacancy_text.lower()
+        """Сопоставление резюме с вакансией с улучшенным анализом"""
+        logger.info(f"Сопоставление резюме с вакансией, длина текстов: {len(request.resume_text)}/{len(request.vacancy_text)}")
 
-        # Простой пример: считаем совпадение ключевых слов
-        keywords = ["go", "python", "postgresql", "docker", "kubernetes"]
-        matches = 0
+        resume_text = request.resume_text
+        vacancy_text = request.vacancy_text
 
-        for keyword in keywords:
-            if keyword in resume_text and keyword in vacancy_text:
-                matches += 1
+        try:
+            # Базовое сравнение на основе эмбеддингов
+            resume_embedding = sentence_model.encode([resume_text])
+            vacancy_embedding = sentence_model.encode([vacancy_text])
+            base_score = cosine_similarity(resume_embedding, vacancy_embedding)[0][0]
 
-        score = min(matches / len(keywords), 1.0)
+            # Дополнительные факторы для улучшения оценки
+            additional_score = 0
 
-        return nlp_pb2.MatchResponse(score=score)
+            # Проверка соответствия навыков
+            resume_skills = self.extract_skills(resume_text)
+            vacancy_skills = self.extract_skills(vacancy_text)
+
+            # Считаем совпадение навыков
+            matched_skills = 0
+            total_skills = 0
+
+            for category, skills in vacancy_skills.items():
+                for skill in skills:
+                    total_skills += 1
+                    if any(s in str(resume_skills.values()).lower() for s in skill.lower().split()):
+                        matched_skills += 1
+
+            skill_match_ratio = matched_skills / total_skills if total_skills > 0 else 0
+
+            # Проверка соответствия опыта
+            resume_exp = self.extract_experience(resume_text)
+            vacancy_exp = self.extract_experience(vacancy_text)
+
+            exp_match = 1 if resume_exp >= vacancy_exp else resume_exp / vacancy_exp
+
+            # Комбинированная оценка
+            final_score = 0.5 * base_score + 0.3 * skill_match_ratio + 0.2 * exp_match
+            final_score = max(0, min(1, final_score))  # Нормализуем от 0 до 1
+
+            logger.info(f"Базовый score: {base_score:.2f}, Совпадение навыков: {skill_match_ratio:.2f}, Совпадение опыта: {exp_match:.2f}")
+            logger.info(f"Итоговый score: {final_score:.2f}")
+
+            return nlp_pb2.MatchResponse(score=final_score)
+
+        except Exception as e:
+            logger.error(f"Ошибка при сопоставлении: {e}")
+            return nlp_pb2.MatchResponse(score=0.0)
 
 def serve():
+    logger.info("Запуск gRPC сервера на порту 50051")
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     nlp_pb2_grpc.add_NLPServiceServicer_to_server(NLPService(), server)
     server.add_insecure_port('[::]:50051')
     server.start()
-    print("gRPC server started on port 50051")
-    server.wait_for_termination()
+    logger.info("gRPC сервер успешно запущен")
+
+    try:
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        logger.info("Остановка сервера...")
+        server.stop(0)
 
 if __name__ == '__main__':
     serve()
@@ -360,8 +932,8 @@ class NLPService(object):
 grpcio==1.64.1
 grpcio-tools==1.64.1
 spacy==3.7.5
-python-docx==1.1.2
 sentence-transformers==3.0.1
+scikit-learn==1.5.0
 numpy==1.26.4
 === create_test.sh ===
 ROOT_DIR="./"
@@ -504,15 +1076,17 @@ services:
       - DB_URL=postgres://postgres:password@postgres:5432/hrdb?sslmode=disable
       - REDIS_ADDR=redis:6379
       - KAFKA_BROKERS=kafka1:29091,kafka2:29092,kafka3:29093
+      - GRPC_HOST=scoring-service  # ← ДОБАВЬТЕ ЭТУ СТРОКУ
+      - GRPC_PORT=50051           # ← ДОБАВЬТЕ ЭТУ СТРОКУ
     depends_on:
       - postgres
       - redis
       - kafka1
       - kafka2
       - kafka3
+      - scoring-service           # ← ДОБАВЬТЕ ЭТУ ЗАВИСИМОСТЬ
     networks:
       - kafka-net
-
 
   resume-service:
     build:
@@ -550,6 +1124,15 @@ services:
     networks:
       - kafka-net
 
+  interview-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.interview
+    ports:
+      - "8765:8765"
+    networks:
+      - kafka-net
+
 volumes:
   postgres-data:
   redis-data:
@@ -557,6 +1140,312 @@ volumes:
 networks:
   kafka-net:
     driver: bridge
+=== frontend/interview.html ===
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HR Avatar - Голосовое интервью</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .question {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        .progress {
+            margin: 20px 0;
+        }
+        .results {
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .processing {
+            display: none;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+<h1>HR Avatar - Голосовое интервью</h1>
+
+<div id="setup">
+    <h2>Настройка интервью</h2>
+    <div>
+        <label>ID кандидата: <input type="text" id="candidateId" value="22328f8d-79fa-4a43-85bd-9bf0149da004"></label>
+    </div>
+    <div>
+        <label>ID вакансии: <input type="text" id="vacancyId" value="8b49b6cd-1411-4c41-8176-a26524468eb2"></label>
+    </div>
+    <button onclick="startInterview()">Начать интервью</button>
+</div>
+
+<div id="interview" style="display: none;">
+    <div class="progress">
+        Вопрос <span id="currentQuestion">1</span> из <span id="totalQuestions">4</span>
+    </div>
+    <div class="question" id="questionText"></div>
+
+    <div class="controls">
+        <button id="recordBtn" onclick="toggleRecording()">Начать запись</button>
+        <button id="nextBtn" onclick="nextQuestion()" disabled>Следующий вопрос</button>
+    </div>
+
+    <div class="processing" id="processing">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <p>Обработка ответа... <span id="progressText">0%</span></p>
+    </div>
+
+    <div id="status"></div>
+</div>
+
+<div id="results" class="results" style="display: none;">
+    <h2>Результаты интервью</h2>
+    <div id="resultsContent"></div>
+</div>
+
+<script>
+    let websocket;
+    let mediaRecorder;
+    let audioChunks = [];
+    let sessionId;
+    let isRecording = false;
+    websocket.onmessage = async function(event) {
+        const data = JSON.parse(event.data);
+        logger.info(`Получено сообщение типа: ${data.type}`);
+
+        if (data.type === 'question') {
+            sessionId = data.session_id;
+
+            // Воспроизводим аудио вопроса
+            if (data.question_audio) {
+                await playQuestionAudio(data.question_audio);
+            }
+
+            document.getElementById('questionText').textContent = data.question;
+            document.getElementById('currentQuestion').textContent = data.question_number;
+            document.getElementById('totalQuestions').textContent = data.total_questions;
+            document.getElementById('nextBtn').disabled = true;
+            document.getElementById('recordBtn').disabled = false;
+        }
+        else if (data.type === 'interview_completed') {
+            showResults(data);
+        }
+        else if (data.type === 'error') {
+            document.getElementById('status').textContent = 'Ошибка: ' + data.message;
+            document.getElementById('recordBtn').disabled = false;
+        }
+    };
+
+    async function playQuestionAudio(audioBase64) {
+        try {
+            const audioBlob = new Blob(
+                [Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0))],
+                { type: 'audio/mp3' }
+            );
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            const audio = new Audio(audioUrl);
+            document.getElementById('status').textContent = 'Воспроизведение вопроса...';
+
+            await new Promise((resolve) => {
+                audio.onended = resolve;
+                audio.play();
+            });
+
+            URL.revokeObjectURL(audioUrl);
+            document.getElementById('status').textContent = 'Вопрос завершен, готово к записи';
+
+        } catch (error) {
+            console.error('Ошибка воспроизведения аудио:', error);
+            document.getElementById('status').textContent = 'Готово к записи ответа';
+        }
+    }
+
+    async function simulateProcessing() {
+        const processingElem = document.getElementById('processing');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+
+        processingElem.style.display = 'block';
+
+        for (let i = 0; i <= 100; i += 5) {
+            progressFill.style.width = i + '%';
+            progressText.textContent = i + '%';
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        processingElem.style.display = 'none';
+    }
+
+    async function startInterview() {
+        const candidateId = document.getElementById('candidateId').value;
+        const vacancyId = document.getElementById('vacancyId').value;
+
+        if (!candidateId || !vacancyId) {
+            alert('Заполните ID кандидата и вакансии');
+            return;
+        }
+
+        // Подключаемся к WebSocket серверу
+        websocket = new WebSocket('ws://localhost:8765');
+
+        websocket.onopen = function() {
+            document.getElementById('setup').style.display = 'none';
+            document.getElementById('interview').style.display = 'block';
+
+            // Начинаем интервью
+            websocket.send(JSON.stringify({
+                type: 'start_interview',
+                candidate_id: candidateId,
+                vacancy_id: vacancyId
+            }));
+        };
+
+        websocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === 'question') {
+                sessionId = data.session_id;
+                document.getElementById('questionText').textContent = data.question;
+                document.getElementById('currentQuestion').textContent = data.question_number;
+                document.getElementById('totalQuestions').textContent = data.total_questions;
+                document.getElementById('nextBtn').disabled = true;
+                document.getElementById('recordBtn').disabled = false;
+            }
+            else if (data.type === 'interview_completed') {
+                showResults(data);
+            }
+        };
+
+        websocket.onerror = function(error) {
+            console.error('WebSocket ошибка:', error);
+            alert('Ошибка подключения к серверу интервью');
+        };
+    }
+
+    async function toggleRecording() {
+        if (!isRecording) {
+            // Начинаем запись
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 16000,
+                        channelCount: 1,
+                        volume: 1.0
+                    }
+                });
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 16000
+                });
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+
+                    reader.onload = async function() {
+                        // Показываем прогресс бар
+                        await simulateProcessing();
+
+                        const base64Audio = reader.result.split(',')[1];
+
+                        // Отправляем аудио на сервер
+                        websocket.send(JSON.stringify({
+                            type: 'audio_response',
+                            session_id: sessionId,
+                            audio: base64Audio
+                        }));
+
+                        document.getElementById('status').textContent = 'Ответ отправлен';
+                    };
+
+                    reader.readAsDataURL(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('recordBtn').textContent = 'Остановить запись';
+                document.getElementById('status').textContent = 'Идет запись...';
+            } catch (error) {
+                console.error('Ошибка доступа к микрофону:', error);
+                alert('Не удалось получить доступ к микрофону');
+            }
+        } else {
+            // Останавливаем запись
+            mediaRecorder.stop();
+            isRecording = false;
+            document.getElementById('recordBtn').textContent = 'Начать запись';
+            document.getElementById('recordBtn').disabled = true;
+        }
+    }
+
+    function nextQuestion() {
+        document.getElementById('recordBtn').disabled = false;
+        document.getElementById('nextBtn').disabled = true;
+        document.getElementById('status').textContent = 'Готово к записи';
+    }
+
+    function showResults(data) {
+        document.getElementById('interview').style.display = 'none';
+        document.getElementById('results').style.display = 'block';
+
+        let resultsHtml = `<p><strong>Общий балл: ${(data.score * 25).toFixed(1)}/100</strong></p>`;
+
+        data.answers.forEach((answer, index) => {
+            resultsHtml += `
+                    <div>
+                        <p><strong>Вопрос ${index + 1}:</strong> ${answer.question}</p>
+                        <p><strong>Ответ:</strong> ${answer.answer}</p>
+                        <p><strong>Балл:</strong> ${(answer.score * 25).toFixed(1)}/25</p>
+                        <hr>
+                    </div>
+                `;
+        });
+
+        document.getElementById('resultsContent').innerHTML = resultsHtml;
+    }
+</script>
+</body>
+</html>
 === go.mod ===
 module github.com/moverq1337/VTBHack
 
@@ -566,8 +1455,8 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
-	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
 	github.com/sirupsen/logrus v1.9.3
+	github.com/unidoc/unioffice v1.39.0
 	google.golang.org/grpc v1.75.0
 	google.golang.org/protobuf v1.36.6
 	gorm.io/driver/postgres v1.6.0
@@ -603,7 +1492,6 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
-	github.com/unidoc/unioffice v1.39.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/net v0.41.0 // indirect
@@ -678,8 +1566,6 @@ github.com/kr/pretty v0.3.0 h1:WgNl7dwNpEZ6jJ9k1snq4pZsg7DOEN8hP9Xw0Tsjwk0=
 github.com/kr/pretty v0.3.0/go.mod h1:640gp4NfQd8pI5XOwp5fnNeVWj67G7CFk/SaSQn7NBk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
-github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728 h1:QwWKgMY28TAXaDl+ExRDqGQltzXqN/xypdKP86niVn8=
-github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728/go.mod h1:1fEHWurg7pvf5SG6XNE5Q8UZmOwex51Mkx3SLhrW5B4=
 github.com/leodido/go-urn v1.4.0 h1:WT9HwE9SGECu3lg4d/dIA+jxlljEa1/ffXKmRjqdmIQ=
 github.com/leodido/go-urn v1.4.0/go.mod h1:bvxc+MVxLKB4z00jd1z+Dvzr47oO32F/QSNjSBOlFxI=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
@@ -813,6 +1699,8 @@ func Connect(dbURL string) (*gorm.DB, error) {
 package handlers
 
 import (
+	"os"
+
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -824,8 +1712,22 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB) {
 		api.POST("/upload/resume", func(c *gin.Context) { UploadResume(c, db) })
 		api.POST("/upload/vacancy", func(c *gin.Context) { UploadVacancy(c, db) })
 		api.POST("/analyze", func(c *gin.Context) { AnalyzeResume(c, db) })
-		api.GET("/health", HealthCheck) // Добавьте эту строку
+		api.GET("/health", HealthCheck)
 	}
+
+	r.GET("/interview", func(c *gin.Context) {
+		// Логируем попытку доступа к файлу
+		log.Printf("Serving interview page")
+
+		// Проверяем существование файла
+		if _, err := os.Stat("/app/frontend/interview.html"); os.IsNotExist(err) {
+			log.Printf("File does not exist: %v", err)
+			c.JSON(404, gin.H{"error": "File not found"})
+			return
+		}
+
+		c.File("/app/frontend/interview.html")
+	})
 
 	r.GET("/health", HealthCheck)
 }
@@ -848,6 +1750,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/unidoc/unioffice/common/license"
 	"google.golang.org/grpc/credentials/insecure"
@@ -922,6 +1825,28 @@ func UploadResume(c *gin.Context, db *gorm.DB) {
 		ParsedData:  "{}",
 		FileURL:     diskURL,
 	}
+
+	// Вызов парсинга резюме
+	grpchost := "scoring-service:50051"
+	conn, err := grpc.NewClient(grpchost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.WithError(err).Error("Ошибка gRPC-соединения для парсинга")
+	} else {
+		defer conn.Close()
+
+		client := pb.NewNLPServiceClient(conn)
+		parseResp, err := client.ParseResume(context.Background(), &pb.ParseRequest{
+			Text: text,
+		})
+
+		if err != nil {
+			log.WithError(err).Error("Ошибка парсинга резюме")
+		} else {
+			// Сохраняем результаты парсинга
+			resume.ParsedData = parseResp.ParsedData
+		}
+	}
+
 	if err := db.Create(&resume).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения в БД"})
 		return
@@ -1061,7 +1986,7 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
-	grpchost := "localhost:50051"
+	grpchost := "scoring-service:50051"
 
 	conn, err := grpc.NewClient(grpchost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -1084,12 +2009,27 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		return
 	}
 
+	// Парсим резюме для получения деталей
+	parseResp, err := client.ParseResume(context.Background(), &pb.ParseRequest{
+		Text: resume.Text,
+	})
+	if err != nil {
+		log.WithError(err).Error("Ошибка парсинга резюме")
+	}
+
+	var parsedData map[string]interface{}
+	if err := json.Unmarshal([]byte(parseResp.ParsedData), &parsedData); err != nil {
+		log.WithError(err).Error("Ошибка разбора JSON данных парсинга")
+		parsedData = make(map[string]interface{})
+	}
+
 	// Сохраняем результаты анализа
 	analysisResult := models.AnalysisResult{
 		ID:         uuid.New(),
 		ResumeID:   resume.ID,
 		VacancyID:  vacancy.ID,
 		MatchScore: float64(matchResp.Score),
+		Details:    parseResp.ParsedData, // Сохраняем полные данные парсинга
 		CreatedAt:  time.Now(),
 	}
 
@@ -1097,6 +2037,30 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		log.WithError(err).Error("Ошибка сохранения результатов анализа")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка сохранения результатов"})
 		return
+	}
+
+	// Сохраняем детали анализа
+	if skills, ok := parsedData["skills"].(map[string]interface{}); ok {
+		for category, skillList := range skills {
+			if skillsArr, ok := skillList.([]interface{}); ok {
+				for _, skill := range skillsArr {
+					analysisDetail := models.AnalysisDetail{
+						ID:               uuid.New(),
+						AnalysisResultID: analysisResult.ID,
+						Category:         "skills",
+						Criteria:         category,
+						ResumeValue:      fmt.Sprintf("%v", skill),
+						VacancyValue:     "",  // Можно добавить проверку наличия в вакансии
+						MatchScore:       0.8, // Заглушка
+						Weight:           0.3, // Заглушка
+						CreatedAt:        time.Now(),
+					}
+					if err := db.Create(&analysisDetail).Error; err != nil {
+						log.WithError(err).Error("Ошибка сохранения деталей анализа")
+					}
+				}
+			}
+		}
 	}
 
 	// Формируем ответ
@@ -1107,6 +2071,7 @@ func AnalyzeResume(c *gin.Context, db *gorm.DB) {
 		"match_score":  fmt.Sprintf("%.2f%%", matchResp.Score*100),
 		"candidate_id": resume.CandidateID.String(),
 		"created_at":   analysisResult.CreatedAt,
+		"details":      parsedData, // Добавляем детали в ответ
 	})
 }
 
@@ -1151,12 +2116,24 @@ type Resume struct {
 }
 
 type AnalysisResult struct {
-	ID         uuid.UUID `gorm:"primaryKey;autoIncrement" json:"-"`
+	ID         uuid.UUID `gorm:"primaryKey;type:uuid" json:"-"`
 	ResumeID   uuid.UUID `gorm:"type:uuid"`
 	VacancyID  uuid.UUID `gorm:"type:uuid"`
 	MatchScore float64   `gorm:"type:decimal(5,2)"`
-	Details    string    `gorm:"type:jsonb"` // Детали анализа
+	Details    string    `gorm:"type:jsonb;default:'{}'"`
 	CreatedAt  time.Time
+}
+
+type AnalysisDetail struct {
+	ID               uuid.UUID `gorm:"primaryKey;type:uuid" json:"-"`
+	AnalysisResultID uuid.UUID `gorm:"type:uuid"`
+	Category         string    `gorm:"type:varchar(100)"` // Например: "skills", "experience", "education"
+	Criteria         string    `gorm:"type:text"`         // Конкретный критерий
+	ResumeValue      string    `gorm:"type:text"`         // Значение из резюме
+	VacancyValue     string    `gorm:"type:text"`         // Требование из вакансии
+	MatchScore       float64   `gorm:"type:decimal(3,2)"` // Оценка соответствия (0-1)
+	Weight           float64   `gorm:"type:decimal(3,2)"` // Вес критерия в общей оценке
+	CreatedAt        time.Time
 }
 
 === internal/pb/nlp.pb.go ===
@@ -1767,41 +2744,6 @@ func main() {
 	fmt.Println("git init")
 }
 
-=== scripts/migrate.go ===
-package scripts
-
-import (
-	"log"
-
-	"github.com/moverq1337/VTBHack/internal/config"
-	"github.com/moverq1337/VTBHack/internal/db"
-	"github.com/moverq1337/VTBHack/internal/models"
-)
-
-func Migrate() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	dbConn, err := db.Connect(cfg.DBURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Автомиграция всех моделей
-	err = dbConn.AutoMigrate(
-		&models.Vacancy{},
-		&models.Resume{},
-		&models.AnalysisResult{},
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Println("Миграции завершены")
-}
-
 === proto/nlp.proto ===
 syntax = "proto3";
 
@@ -1830,3 +2772,57 @@ message MatchRequest {
 message MatchResponse {
   float score = 1;
 }
+=== scripts/migrate.go ===
+package scripts
+
+import (
+	"log"
+
+	"github.com/moverq1337/VTBHack/internal/config"
+	"github.com/moverq1337/VTBHack/internal/db"
+	"github.com/moverq1337/VTBHack/internal/models"
+)
+
+func Migrate() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbConn, err := db.Connect(cfg.DBURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Автомиграция всех моделей
+	err = dbConn.AutoMigrate(
+		&models.Vacancy{},
+		&models.Resume{},
+		&models.AnalysisResult{},
+		&models.AnalysisDetail{}, // ← ДОБАВЬТЕ ЭТУ СТРОКУ
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Println("Миграции завершены")
+}
+
+=== wait-for.sh ===
+#!/bin/sh
+# wait-for.sh
+
+set -e
+
+host="$1"
+port="$2"
+shift 2
+cmd="$@"
+
+until nc -z "$host" "$port"; do
+  >&2 echo "Waiting for $host:$port..."
+  sleep 2
+done
+
+>&2 echo "$host:$port is available - executing command"
+exec $cmd
