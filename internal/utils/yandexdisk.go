@@ -58,7 +58,7 @@ func UploadToYandexDisk(filePath, fileName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create upload request: %v", err)
 	}
-	uploadReq.Header.Set("Content-Type", "application/octet-stream")
+	uploadReq.Header.Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 	uploadResp, err := client.Do(uploadReq)
 	if err != nil {
@@ -117,33 +117,4 @@ func UploadToYandexDisk(filePath, fileName string) (string, error) {
 	}
 
 	return publicResponse.PublicURL, nil
-}
-
-// CreateFolder создает папку на Яндекс.Диске
-func CreateFolder(folderName string) error {
-	oauthToken := os.Getenv("YANDEX_DISK_TOKEN")
-	if oauthToken == "" {
-		return fmt.Errorf("YANDEX_DISK_TOKEN environment variable not set")
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	url := fmt.Sprintf("https://cloud-api.yandex.net/v1/disk/resources?path=app:/%s", folderName)
-
-	req, err := http.NewRequest("PUT", url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "OAuth "+oauthToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to create folder: %s", resp.Status)
-	}
-
-	return nil
 }

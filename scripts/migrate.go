@@ -24,6 +24,7 @@ func Migrate() {
 		&models.Vacancy{},
 		&models.Resume{},
 		&models.AnalysisResult{},
+		&models.AnalysisDetail{}, // ← ДОБАВЬТЕ ЭТУ СТРОКУ
 	)
 	if err != nil {
 		log.Fatal(err)

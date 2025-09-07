@@ -125,15 +125,17 @@ services:
       - DB_URL=postgres://postgres:password@postgres:5432/hrdb?sslmode=disable
       - REDIS_ADDR=redis:6379
       - KAFKA_BROKERS=kafka1:29091,kafka2:29092,kafka3:29093
+      - GRPC_HOST=scoring-service  # ← ДОБАВЬТЕ ЭТУ СТРОКУ
+      - GRPC_PORT=50051           # ← ДОБАВЬТЕ ЭТУ СТРОКУ
     depends_on:
       - postgres
       - redis
       - kafka1
       - kafka2
       - kafka3
+      - scoring-service           # ← ДОБАВЬТЕ ЭТУ ЗАВИСИМОСТЬ
     networks:
       - kafka-net
-
 
   resume-service:
     build:

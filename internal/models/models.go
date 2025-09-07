@@ -6,7 +6,7 @@ import (
 )
 
 type Vacancy struct {
-	ID               uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()"`
+	ID               uuid.UUID `gorm:"primaryKey;autoIncrement" json:"-"`
 	Title            string    `gorm:"type:varchar(255)"`
 	Requirements     string    `gorm:"type:text"`
 	Responsibilities string    `gorm:"type:text"`
@@ -24,7 +24,7 @@ type Vacancy struct {
 }
 
 type Resume struct {
-	ID           uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()"`
+	ID           uuid.UUID `gorm:"primaryKey;autoIncrement" json:"-"`
 	CandidateID  uuid.UUID `gorm:"type:uuid"`
 	Text         string    `gorm:"type:text"`
 	ParsedData   string    `gorm:"type:jsonb"`
@@ -38,10 +38,22 @@ type Resume struct {
 }
 
 type AnalysisResult struct {
-	ID         uuid.UUID `gorm:"primaryKey;type:uuid;default:uuid_generate_v4()"`
+	ID         uuid.UUID `gorm:"primaryKey;type:uuid" json:"-"`
 	ResumeID   uuid.UUID `gorm:"type:uuid"`
 	VacancyID  uuid.UUID `gorm:"type:uuid"`
 	MatchScore float64   `gorm:"type:decimal(5,2)"`
-	Details    string    `gorm:"type:jsonb"` // Детали анализа
+	Details    string    `gorm:"type:jsonb;default:'{}'"`
 	CreatedAt  time.Time
+}
+
+type AnalysisDetail struct {
+	ID               uuid.UUID `gorm:"primaryKey;type:uuid" json:"-"`
+	AnalysisResultID uuid.UUID `gorm:"type:uuid"`
+	Category         string    `gorm:"type:varchar(100)"` // Например: "skills", "experience", "education"
+	Criteria         string    `gorm:"type:text"`         // Конкретный критерий
+	ResumeValue      string    `gorm:"type:text"`         // Значение из резюме
+	VacancyValue     string    `gorm:"type:text"`         // Требование из вакансии
+	MatchScore       float64   `gorm:"type:decimal(3,2)"` // Оценка соответствия (0-1)
+	Weight           float64   `gorm:"type:decimal(3,2)"` // Вес критерия в общей оценке
+	CreatedAt        time.Time
 }
